@@ -376,7 +376,7 @@ void nes_start()
   nes.scanline_cycles = 0;
   nes.fiq_cycles = (int)NES_FIQ_PERIOD;
   nes.fiq_occurred = false;
-  nes.fiq_state = 0xC0;
+  nes.fiq_state = 0xff;
 
   for (int i = 0; i < 4; ++i)
   {
