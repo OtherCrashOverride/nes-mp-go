@@ -29,6 +29,7 @@ typedef uint8_t uint8;
 #include "../components/odroid/odroid_audio.h"
 
 #include "ui.h"
+#include "network.h"
 
 
 const char *SD_BASE_PATH = "/sd";
@@ -245,7 +246,7 @@ static void do_menu()
 
     // state
     printf("PowerDown: Saving state.\n");
-    do_save_state();
+    //do_save_state();
 
 
     // Set menu application
@@ -332,33 +333,48 @@ int app_main(void)
     }
 
 
-    // Load ROM
-    esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
-    if (r != ESP_OK)
+    // Network role
+    NET_ROLE role = ui_choose_role();
+
+    if (role == NET_ROLE_SERVER)
     {
-        odroid_display_show_sderr(ODROID_SD_ERR_NOCARD);
+        network_host_init();
+
+        
+        // Load ROM
+        esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
+        if (r != ESP_OK)
+        {
+            odroid_display_show_sderr(ODROID_SD_ERR_NOCARD);
+            abort();
+        }
+
+        romPath = odroid_settings_RomFilePath_get();
+        while (!romPath)
+        {
+            const char* current = "";
+            romPath = ui_choosefile("/sd/roms/nes", ".nes", current);
+            // Clear display
+            ili9341_write_frame_nes(NULL, NULL, 0);
+        }
+
+        printf("app_main: Reading from sdcard.\n");
+
+        // copy from SD card
+        size_t fileSize = odroid_sdcard_copy_file_to_memory(romPath, ROM_DATA);
+        printf("app_main: fileSize=%d\n", fileSize);
+        if (fileSize == 0)
+        {
+            odroid_display_show_sderr(ODROID_SD_ERR_BADFILE);
+            abort();
+        }
+    }
+    else
+    {
         abort();
     }
+    
 
-    romPath = odroid_settings_RomFilePath_get();
-    while (!romPath)
-    {
-        const char* current = "";
-        romPath = ui_choosefile("/sd/roms/nes", ".nes", current);
-        // Clear display
-        ili9341_write_frame_nes(NULL, NULL, 0);
-    }
-
-    printf("app_main: Reading from sdcard.\n");
-
-    // copy from SD card
-    size_t fileSize = odroid_sdcard_copy_file_to_memory(romPath, ROM_DATA);
-    printf("app_main: fileSize=%d\n", fileSize);
-    if (fileSize == 0)
-    {
-        odroid_display_show_sderr(ODROID_SD_ERR_BADFILE);
-        abort();
-    }
 
     // r = odroid_sdcard_close();
     // if (r != ESP_OK)
@@ -395,7 +411,7 @@ int app_main(void)
 
 
     nes_start();
-    do_load_state();
+    //do_load_state();
 
     if (forceConsoleReset)
     {

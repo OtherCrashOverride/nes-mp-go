@@ -12,6 +12,8 @@
 #include "../components/odroid/odroid_display.h"
 #include "../components/odroid/odroid_input.h"
 
+#include "ui.h"
+
 
 UG_GUI gui;
 uint16_t *fb;
@@ -512,4 +514,111 @@ const char* ui_choosefile(const char* path, const char* extension, const char* c
 
     free(fb);
     return result;
+}
+
+static void ui_draw_role_menu(NET_ROLE role)
+{
+    for (int line = 0; line < NET_ROLE_MAX; ++line)
+    {
+        uint16_t id = TXB_ID_0 + line;
+
+        if (line == role)
+        {
+            UG_TextboxSetForeColor(&window1, id, C_BLACK);
+            UG_TextboxSetBackColor(&window1, id, C_YELLOW);
+        }
+        else
+        {
+            UG_TextboxSetForeColor(&window1, id, C_BLACK);
+            UG_TextboxSetBackColor(&window1, id, C_WHITE);
+        }
+    }
+
+    UpdateDisplay();
+}
+
+NET_ROLE ui_choose_role()
+{
+    fb = (uint16_t *)heap_caps_malloc(320 * 240 * 2, MALLOC_CAP_SPIRAM);
+    if (!fb) abort();
+
+
+    UG_Init(&gui, pset, 320, 240);
+
+    UG_WindowCreate(&window1, objbuffwnd1, MAX_OBJECTS, window1callback);
+
+    UG_WindowSetTitleText(&window1, "CHOOSE A ROLE");
+    UG_WindowSetTitleTextFont(&window1, &FONT_10X16);
+    UG_WindowSetTitleTextAlignment(&window1, ALIGN_CENTER);
+
+    UG_S16 innerWidth = UG_WindowGetInnerWidth(&window1);
+    UG_S16 innerHeight = UG_WindowGetInnerHeight(&window1);
+    UG_S16 titleHeight = UG_WindowGetTitleHeight(&window1);
+    UG_S16 textHeight = (innerHeight) / NET_ROLE_MAX;
+
+    const char* role_text[] = {"Start Multiplayer Game", "Join Multiplayer Game"};
+
+    for (int i = 0; i < NET_ROLE_MAX; ++i)
+    {
+        uint16_t id = TXB_ID_0 + i;
+        UG_S16 top = i * textHeight;
+        UG_TextboxCreate(&window1, &textbox[i], id, 0, top, innerWidth, top + textHeight - 1);
+        UG_TextboxSetFont(&window1, id, &FONT_12X16);
+        UG_TextboxSetForeColor(&window1, id, C_BLACK);
+        UG_TextboxSetAlignment(&window1, id, ALIGN_CENTER);
+        UG_TextboxSetText(&window1, id, role_text[i]);
+    }
+
+    UG_WindowShow(&window1);
+    
+
+    NET_ROLE current_role = NET_ROLE_SERVER;
+    ui_draw_role_menu(current_role);
+
+    odroid_gamepad_state previousState;
+    odroid_input_gamepad_read(&previousState);
+
+    while(true)
+    {
+        odroid_gamepad_state state;
+        odroid_input_gamepad_read(&state);
+
+        if (!previousState.values[ODROID_INPUT_DOWN] && state.values[ODROID_INPUT_DOWN])
+        {
+            if (current_role + 1 < NET_ROLE_MAX)
+            {
+                ++current_role;
+            }
+            else
+            {
+                current_role = (NET_ROLE)0;
+            }
+
+            ui_draw_role_menu(current_role);
+        }
+        else if (!previousState.values[ODROID_INPUT_UP] && state.values[ODROID_INPUT_UP])
+        {
+            if (current_role > 0)
+            {
+                --current_role;
+            }
+            else
+            {
+                current_role = NET_ROLE_MAX - 1;
+            }
+
+            ui_draw_role_menu(current_role);
+        }
+        else if (!previousState.values[ODROID_INPUT_A] && state.values[ODROID_INPUT_A])
+        {
+            break;
+        }
+
+        previousState = state;
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+
+
+    free(fb);
+    return current_role;
 }
