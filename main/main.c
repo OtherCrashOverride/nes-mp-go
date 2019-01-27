@@ -34,6 +34,7 @@ typedef uint8_t uint8;
 
 const char *SD_BASE_PATH = "/sd";
 static char *ROM_DATA; // = (char*)0x3f800000;
+static const size_t ROM_DATA_LENGTH = 1 * 1024 * 1024;
 
 bool forceConsoleReset;
 
@@ -70,6 +71,11 @@ char *osd_getromdata()
 {
     printf("Initialized. ROM@%p\n", ROM_DATA);
     return (char *)ROM_DATA;
+}
+
+size_t osd_getromdata_length()
+{
+    return ROM_DATA_LENGTH;
 }
 
 static void palette_copy()
@@ -261,9 +267,8 @@ int app_main(void)
 {
     printf("nesemu (%s-%s).\n", COMPILEDATE, GITREV);
 
-    ROM_DATA = heap_caps_malloc(1 * 1024 * 1024, MALLOC_CAP_SPIRAM);
-    if (!ROM_DATA)
-        abort();
+    ROM_DATA = heap_caps_malloc(ROM_DATA_LENGTH, MALLOC_CAP_SPIRAM);
+    if (!ROM_DATA) abort();
 
     nvs_flash_init();
 
@@ -338,9 +343,6 @@ int app_main(void)
 
     if (role == NET_ROLE_SERVER)
     {
-        network_host_init();
-
-        
         // Load ROM
         esp_err_t r = odroid_sdcard_open(SD_BASE_PATH);
         if (r != ESP_OK)
@@ -368,6 +370,25 @@ int app_main(void)
             odroid_display_show_sderr(ODROID_SD_ERR_BADFILE);
             abort();
         }
+
+
+        // free sd card and filesystem memory
+        if (odroid_sdcard_close() != ESP_OK)
+        {
+            abort();
+        }
+
+
+        // Start networking
+        network_host_init();
+
+    }
+    else if (role == NET_ROLE_CLIENT)
+    {
+        network_client_init();
+
+        romPath = "(none)";
+        network_client_load_rom();
     }
     else
     {

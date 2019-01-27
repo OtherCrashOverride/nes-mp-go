@@ -467,17 +467,17 @@ rominfo_t *rom_load(const char *filename)
 
    rominfo = malloc(sizeof(rominfo_t));
    if (NULL == rominfo)
-      return NULL;
+      abort();
 
    memset(rominfo, 0, sizeof(rominfo_t));
 
    strncpy(rominfo->filename, filename, sizeof(rominfo->filename));
    printf("rom_load: rominfo->filename='%s'\n", rominfo->filename);
 
-      //FILE* fp = fopen(filename, "rb");
-      //if (!fp) abort();
+   //FILE* fp = fopen(filename, "rb");
+   //if (!fp) abort();
 
-      //fread(rom, 1, 64 * 1024, fp);
+   //fread(rom, 1, 64 * 1024, fp);
 
    /* Get the header and stick it into rominfo struct */
 	if (rom_getheader(&rom, rominfo))
