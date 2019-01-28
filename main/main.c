@@ -34,7 +34,8 @@ typedef uint8_t uint8;
 
 const char *SD_BASE_PATH = "/sd";
 static char *ROM_DATA; // = (char*)0x3f800000;
-static const size_t ROM_DATA_LENGTH = 1 * 1024 * 1024;
+static const size_t ROM_DATA_LENGTH_MAX = 1 * 1024 * 1024;
+static uint32_t ROM_DATA_LENGTH = 0;
 
 bool forceConsoleReset;
 
@@ -267,7 +268,7 @@ int app_main(void)
 {
     printf("nesemu (%s-%s).\n", COMPILEDATE, GITREV);
 
-    ROM_DATA = heap_caps_malloc(ROM_DATA_LENGTH, MALLOC_CAP_SPIRAM);
+    ROM_DATA = heap_caps_malloc(ROM_DATA_LENGTH_MAX, MALLOC_CAP_SPIRAM);
     if (!ROM_DATA) abort();
 
     nvs_flash_init();
@@ -371,6 +372,8 @@ int app_main(void)
             abort();
         }
 
+        ROM_DATA_LENGTH = fileSize;
+        
 
         // free sd card and filesystem memory
         if (odroid_sdcard_close() != ESP_OK)

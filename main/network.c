@@ -22,6 +22,7 @@ extern size_t osd_getromdata_length();
 static int host_state_sock = -1;
 
 #define NETWORK_EMUSTATE_PORT (1234)
+#define NETWORK_TRANSMIT_MAX (256)
 
 
 #define EXAMPLE_ESP_WIFI_SSID      "odroid-go-"
@@ -165,7 +166,7 @@ static void network_host_proc(void *arg)
                     uint32_t total_sent = 0;
                     while (total_sent < romlength)
                     {
-                        ssize_t sent = send(newsockfd, rom_ptr + total_sent, 256, 0);
+                        ssize_t sent = send(newsockfd, rom_ptr + total_sent, NETWORK_TRANSMIT_MAX, 0);
                         if (sent < 0)
                         {
                             error_flag = true;
@@ -308,7 +309,7 @@ void network_client_load_rom()
     size_t total_length = 0;
     while(total_length < rom_length)
     {
-        ssize_t read = recv(sock, rom_ptr + total_length, 512, 0);
+        ssize_t read = recv(sock, rom_ptr + total_length, NETWORK_TRANSMIT_MAX, 0);
         if (read < 0)
         {
             printf("recv failed.\n");
