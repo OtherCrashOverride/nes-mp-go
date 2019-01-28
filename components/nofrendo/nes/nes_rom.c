@@ -143,8 +143,8 @@ static void rom_loadsram(rominfo_t *rominfo)
 static int rom_allocsram(rominfo_t *rominfo)
 {
    /* Load up SRAM */
-   rominfo->sram = malloc(SRAM_BANK_LENGTH * rominfo->sram_banks);
-   //rominfo->sram = heap_caps_malloc(SRAM_BANK_LENGTH * rominfo->sram_banks, MALLOC_CAP_SPIRAM);
+   //rominfo->sram = malloc(SRAM_BANK_LENGTH * rominfo->sram_banks);
+   rominfo->sram = heap_caps_malloc(SRAM_BANK_LENGTH * rominfo->sram_banks, MALLOC_CAP_SPIRAM);
    if (NULL == rominfo->sram)
    {
       printf("Could not allocate space for battery RAM");
