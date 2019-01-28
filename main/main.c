@@ -64,6 +64,7 @@ extern int state_load(char *fn);
 extern nes_t *console_nes;
 
 static nesinput_t nes_gamepad_0 = {INP_JOYPAD0, 0};
+static nesinput_t nes_gamepad_1 = {INP_JOYPAD1, 0};
 static uint16_t palette[256];
 const char *romPath;
 
@@ -373,7 +374,7 @@ int app_main(void)
         }
 
         ROM_DATA_LENGTH = fileSize;
-        
+
 
         // free sd card and filesystem memory
         if (odroid_sdcard_close() != ESP_OK)
@@ -384,11 +385,14 @@ int app_main(void)
 
         // Start networking
         network_host_init();
+        network_host_wait_for_connection();
+        uint32_t count = network_host_send_rom();
 
     }
     else if (role == NET_ROLE_CLIENT)
     {
         network_client_init();
+        network_client_connect_to_host();
 
         romPath = "(none)";
         network_client_load_rom();
@@ -426,6 +430,7 @@ int app_main(void)
     console_nes = nes;
     
     input_register(&nes_gamepad_0);
+    input_register(&nes_gamepad_1);
 
     int nes_ret = nes_insertcart(romPath, nes);
     if (nes_ret != 0)
@@ -453,52 +458,111 @@ int app_main(void)
     uint32_t stopTime = 0;
     uint32_t totalElapsedTime = 0;
 
+    nes_gamepad_0.data = 0;
+    nes_gamepad_1.data = 0;
+
     while (1)
     {
         startTime = xthal_get_ccount();
 
         // Input
-        odroid_gamepad_state joystick;
-        odroid_input_gamepad_read(&joystick);
-
-        if (previousState.values[ODROID_INPUT_VOLUME] && !joystick.values[ODROID_INPUT_VOLUME])
+        if (!(skipFrame & 0x01))
         {
-            odroid_audio_volume_change();
-            printf("main: Volume=%d\n", odroid_audio_volume_get());
+            odroid_gamepad_state joystick;
+            odroid_input_gamepad_read(&joystick);
+
+            if (previousState.values[ODROID_INPUT_VOLUME] && !joystick.values[ODROID_INPUT_VOLUME])
+            {
+                odroid_audio_volume_change();
+                printf("main: Volume=%d\n", odroid_audio_volume_get());
+            }
+
+            if (previousState.values[ODROID_INPUT_MENU] && !joystick.values[ODROID_INPUT_MENU])
+            {
+                do_menu();
+            }
+
+            // Scaling
+            if (joystick.values[ODROID_INPUT_START] && !previousState.values[ODROID_INPUT_RIGHT] && joystick.values[ODROID_INPUT_RIGHT])
+            {
+                scaling_enabled = !scaling_enabled;
+                odroid_settings_ScaleDisabled_set(ODROID_SCALE_DISABLE_SMS, scaling_enabled ? 0 : 1);
+            }
+
+            if (role == NET_ROLE_SERVER)
+            {
+                nes_gamepad_0.data = 0;
+
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_A] ? INP_PAD_A : 0;
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_B] ? INP_PAD_B : 0;
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_SELECT] ? INP_PAD_SELECT : 0;
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_START] ? INP_PAD_START : 0;
+
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_UP] ? INP_PAD_UP : 0;
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_DOWN] ? INP_PAD_DOWN : 0;
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_LEFT] ? INP_PAD_LEFT : 0;
+                nes_gamepad_0.data |= joystick.values[ODROID_INPUT_RIGHT] ? INP_PAD_RIGHT : 0;
+                
+            
+                // Send state
+                int state[3] = {0xdeadbeef, nes_gamepad_0.data, nes_gamepad_1.data};
+                network_send((uint8_t*)state, 3 * sizeof(int));
+
+                // Get player2 gamepad
+                network_recv((uint8_t*)state, 3 * sizeof(int));
+
+                if (state[0] == 0x0badf00d)
+                {
+                    //nes_gamepad_0.data = state[1];
+                    nes_gamepad_1.data = state[2];
+                }
+            }
+            else
+            {
+                int state[3];
+
+                // Receive state                
+                network_recv((uint8_t*)state, 3 * sizeof(int));
+
+                if (state[0] == 0xdeadbeef)
+                {
+                    nes_gamepad_0.data = state[1];
+                    nes_gamepad_1.data = state[2];
+                }
+
+
+                // Send player2 gamepad
+                int data = 0;
+
+                data |= joystick.values[ODROID_INPUT_A] ? INP_PAD_A : 0;
+                data |= joystick.values[ODROID_INPUT_B] ? INP_PAD_B : 0;
+                data |= joystick.values[ODROID_INPUT_SELECT] ? INP_PAD_SELECT : 0;
+                data |= joystick.values[ODROID_INPUT_START] ? INP_PAD_START : 0;
+
+                data |= joystick.values[ODROID_INPUT_UP] ? INP_PAD_UP : 0;
+                data |= joystick.values[ODROID_INPUT_DOWN] ? INP_PAD_DOWN : 0;
+                data |= joystick.values[ODROID_INPUT_LEFT] ? INP_PAD_LEFT : 0;
+                data |= joystick.values[ODROID_INPUT_RIGHT] ? INP_PAD_RIGHT : 0;
+
+                state[0] = 0x0badf00d;
+                state[1] = 0x80808080;
+                state[2] = data;
+
+                network_send((uint8_t*)state, 3 * sizeof(int));
+            }
+
+            previousState = joystick;
         }
+        
 
-        if (previousState.values[ODROID_INPUT_MENU] && !joystick.values[ODROID_INPUT_MENU])
-        {
-            do_menu();
-        }
-
-        // Scaling
-        if (joystick.values[ODROID_INPUT_START] && !previousState.values[ODROID_INPUT_RIGHT] && joystick.values[ODROID_INPUT_RIGHT])
-        {
-            scaling_enabled = !scaling_enabled;
-            odroid_settings_ScaleDisabled_set(ODROID_SCALE_DISABLE_SMS, scaling_enabled ? 0 : 1);
-        }
-
-        nes_gamepad_0.data = 0;
-
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_A] ? INP_PAD_A : 0;
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_B] ? INP_PAD_B : 0;
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_SELECT] ? INP_PAD_SELECT : 0;
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_START] ? INP_PAD_START : 0;
-
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_UP] ? INP_PAD_UP : 0;
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_DOWN] ? INP_PAD_DOWN : 0;
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_LEFT] ? INP_PAD_LEFT : 0;
-        nes_gamepad_0.data |= joystick.values[ODROID_INPUT_RIGHT] ? INP_PAD_RIGHT : 0;
-
-        previousState = joystick;
+       
 
 
         // Simulate
         nes_step();
 
 
-        // Preset
+        // Present
         play_audio();
 
         if (!(skipFrame & 0x01))

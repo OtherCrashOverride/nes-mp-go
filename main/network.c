@@ -22,7 +22,7 @@ extern size_t osd_getromdata_length();
 static int host_state_sock = -1;
 
 #define NETWORK_EMUSTATE_PORT (1234)
-#define NETWORK_TRANSMIT_MAX (256)
+#define NETWORK_TRANSMIT_MAX (128)
 
 
 #define EXAMPLE_ESP_WIFI_SSID      "odroid-go-"
@@ -109,6 +109,7 @@ void wifi_init_softap()
              EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
 }
 
+#if 0
 static void network_host_proc(void *arg)
 {
     int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -192,13 +193,18 @@ static void network_host_proc(void *arg)
         close(newsockfd);
     }
 }
-
+#endif
 
 bool network_version_check()
 {
     // TODO
     return true;
 }
+
+
+
+static int host_sock = -1;
+static int comm_sock = -1;
 
 void network_host_init()
 {
@@ -222,8 +228,53 @@ void network_host_init()
         IP2STR(&ip_info.netmask),
         IP2STR(&ip_info.gw));
 
-    xTaskCreatePinnedToCore(&network_host_proc, "host_proc", 1024 * 2, NULL, 5, NULL, 1);
+    //xTaskCreatePinnedToCore(&network_host_proc, "host_proc", 1024 * 2, NULL, 5, NULL, 1);
+
+    host_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (host_sock < 0) abort();
+
+    struct sockaddr_in si_me;
+    memset((void*) &si_me, 0, sizeof(si_me));
+    
+    si_me.sin_family = AF_INET;
+    si_me.sin_port = htons(NETWORK_EMUSTATE_PORT);
+    si_me.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(host_sock, &si_me, sizeof(si_me)) == -1)
+    {
+        printf("host_sock bind failed.\n");
+        abort();
+    }
+
+    printf("host_sock socket OK.\n");
+
+    if (listen(host_sock, 1) < 0)
+    {
+        printf("host_sock listen failed.\n");
+        abort();
+    }
 }
+
+void network_host_wait_for_connection()
+{
+    printf("network_host_wait_for_connection started\n");
+
+    if (host_sock < 0) abort();
+
+    struct sockaddr_in cli_addr;
+    socklen_t clilen = sizeof(cli_addr);
+   
+    comm_sock = accept(host_sock, (struct sockaddr *)&cli_addr, &clilen);            
+    if (comm_sock < 0)
+    {
+        printf("accept failed.\n");
+        abort();
+    }
+
+    printf("network_host_wait_for_connection finished\n");
+}
+
+
+
 
 void network_client_init()
 {
@@ -263,12 +314,14 @@ void network_client_init()
         EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
 }
 
-void network_client_load_rom()
+void network_client_connect_to_host()
 {
-    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0) abort();
+    printf("network_client_connect_to_host started\n");
 
-    printf("socket OK.\n");
+    comm_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (comm_sock < 0) abort();
+
+    printf("comm_sock socket OK.\n");
 
     struct sockaddr_in si_me;
     memset((void*) &si_me, 0, sizeof(si_me));
@@ -283,45 +336,92 @@ void network_client_load_rom()
         abort();
     } 
 
-    if (connect(sock, (struct sockaddr *)&si_me, sizeof(si_me)) < 0) 
+    if (connect(comm_sock, (struct sockaddr *)&si_me, sizeof(si_me)) < 0) 
     { 
-        printf("connect failed \n"); 
-        abort();
-    } 
-
-    uint8_t command = NETWORK_CONTROL_SEND_ROM;
-    int r = send(sock, &command, sizeof(command), 0);
-    if (r < 1)
-    {
-        printf("send failed.\n");
+        printf("comm_sock connect failed \n"); 
         abort();
     }
+
+    printf("network_client_connect_to_host finished\n");
+}
+
+uint32_t network_host_send_rom()
+{
+    printf("network_host_send_rom started.\n");
+
+    uint32_t total_sent = 0;
+
+    uint32_t romlength = osd_getromdata_length();
+    if (send(comm_sock, &romlength, sizeof(romlength), 0) > 0)
+    {
+        char* rom_ptr = osd_getromdata();
+
+        while (total_sent < romlength)
+        {
+            ssize_t sent = send(comm_sock, rom_ptr + total_sent, NETWORK_TRANSMIT_MAX, 0);
+            if (sent < 1)
+            {
+                total_sent = 0;
+                break;
+            } 
+
+            printf("sent %d of %d rom data.\n", total_sent, romlength);
+            total_sent += sent;
+
+            vTaskDelay(1);
+        }
+    }
+
+    printf("network_host_send_rom ended.\n");
+    return total_sent;
+}
+
+uint32_t network_client_load_rom()
+{
+    printf("network_client_load_rom started.\n");
+
+    size_t total_length = 0;
 
     uint32_t rom_length;
-    r = recv(sock, &rom_length, sizeof(rom_length), 0);
-    if (r != sizeof(rom_length))
+    if (recv(comm_sock, &rom_length, sizeof(rom_length), 0) == sizeof(rom_length))
     {
-        printf("recv failed.\n");
-        abort();
-    }
+        char* rom_ptr = osd_getromdata();
 
-    char* rom_ptr = osd_getromdata();
-    size_t total_length = 0;
-    while(total_length < rom_length)
-    {
-        ssize_t read = recv(sock, rom_ptr + total_length, NETWORK_TRANSMIT_MAX, 0);
-        if (read < 0)
+        while(total_length < rom_length)
         {
-            printf("recv failed.\n");
-            abort();
-        }
+            ssize_t read = recv(comm_sock, rom_ptr + total_length, NETWORK_TRANSMIT_MAX, 0);
+            if (read < 1)
+            {
+                total_length = 0;
+                break;
+            }
 
-        printf("received %d of %d rom data.\n", total_length, rom_length);
-        total_length += read;
+            printf("received %d of %d rom data.\n", total_length, rom_length);
+            total_length += read;
+        }
     }
-    
-    close(sock);
+
+    printf("network_client_load_rom ended.\n");
+    return total_length;
 }
+
+
+
+ssize_t network_send(uint8_t* data, size_t len)
+{
+    return send(comm_sock, data, len, 0);
+}
+
+ssize_t network_recv(uint8_t* data, size_t len)
+{
+    return recv(comm_sock, data, len, 0);
+}
+
+void network_close()
+{
+    close(comm_sock);
+}
+
 
 bool network_client_sync_with_host()
 {
