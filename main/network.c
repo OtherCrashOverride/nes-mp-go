@@ -16,6 +16,8 @@
 
 #include <string.h>
 
+#include "ui.h"
+
 
 extern char* osd_getromdata();
 extern size_t osd_getromdata_length();
@@ -32,6 +34,10 @@ static int host_state_sock = -1;
 #define EXAMPLE_MAX_STA_CONN       1
 
 const int WIFI_CONNECTED_BIT = BIT0;
+const int WIFI_SCAN_DONE = BIT1;
+
+
+static const char* device_name = NULL;
 
 
 /* FreeRTOS event group to signal when we are connected*/
@@ -74,6 +80,10 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
             ESP_LOGI(TAG,"SYSTEM_EVENT_STA_DISCONNECTED\n");
             break;
         }
+    case SYSTEM_EVENT_SCAN_DONE:
+        ESP_LOGI(TAG, "got SYSTEM_EVENT_SCAN_DONE\n");
+        xEventGroupSetBits(s_wifi_event_group, WIFI_SCAN_DONE);
+        break;
 
     default:
         break;
@@ -83,6 +93,17 @@ static esp_err_t event_handler(void *ctx, system_event_t *event)
 
 void wifi_init_softap()
 {
+    uint8_t mac[6];   // base MAC address, length: 6 bytes.
+    ESP_ERROR_CHECK(esp_efuse_mac_get_default(&mac));
+
+    if (device_name) abort();
+    device_name = (const char*)malloc(strlen(EXAMPLE_ESP_WIFI_SSID) + 11 + 1); // Name + 4 hex bytes + zero termination
+    if (!device_name) abort();
+
+    sprintf(device_name, "%s%02X-%02X-%02X-%02X", EXAMPLE_ESP_WIFI_SSID, mac[2], mac[3], mac[4], mac[5]);
+    printf("device_name='%s'\n", device_name);
+
+
     s_wifi_event_group = xEventGroupCreate();
 
     tcpip_adapter_init();
@@ -90,10 +111,12 @@ void wifi_init_softap()
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    
+
     wifi_config_t wifi_config = {
         .ap = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
+ //           .ssid = device_name,
+            .ssid_len = strlen(device_name),
             .password = EXAMPLE_ESP_WIFI_PASS,
             .max_connection = EXAMPLE_MAX_STA_CONN,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK
@@ -102,6 +125,7 @@ void wifi_init_softap()
     if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0) {
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     }
+    strcpy(&wifi_config.ap.ssid, device_name);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &wifi_config));
@@ -297,16 +321,87 @@ void network_client_init()
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .password = EXAMPLE_ESP_WIFI_PASS
-        },
-    };
+    
 
+    wifi_config_t wifi_config = {
+//        .sta = {
+//            .ssid = EXAMPLE_ESP_WIFI_SSID,
+//            .password = EXAMPLE_ESP_WIFI_PASS
+//        },
+    };
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+
+    const char* host_ssid = NULL;
+    while(!host_ssid)
+    {
+        // Scan
+        wifi_scan_config_t scan_config = {
+                .ssid = NULL,
+                .bssid = NULL,
+                .channel = 0,
+                .show_hidden = 0,
+                .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+    //            .scan_time.min = 0,
+    //            .scan_time.max = 0
+        };
+        ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, true));
+
+        //xEventGroupWaitBits(s_wifi_event_group, WIFI_SCAN_DONE,
+        //    false, true, portMAX_DELAY);
+
+        uint16_t ap_count;
+        ESP_ERROR_CHECK(esp_wifi_scan_get_ap_num(&ap_count));
+        printf("ap_count=%d\n", ap_count);
+
+        wifi_ap_record_t* ap_records = malloc(sizeof(wifi_ap_record_t) * ap_count);
+        ESP_ERROR_CHECK(esp_wifi_scan_get_ap_records(&ap_count, ap_records));
+        printf("ap_count=%d\n", ap_count);
+
+        const char** hosts = malloc(sizeof(char*) * ap_count);
+        memset(hosts, 0, sizeof(char*) * ap_count);
+
+        for(uint16_t i = 0; i < ap_count; ++i)
+        {            
+            size_t len = strlen((char*)ap_records[i].ssid);
+            printf("AP: ssid='%s' (%d), rssi=%d\n", ap_records[i].ssid, len, ap_records[i].rssi);
+
+            hosts[i] = malloc(sizeof(char) * len + 1);
+            if (!hosts[i]) abort();
+
+            //memset(hosts[i], 0, len + 1);
+            strcpy(hosts[i], (char*)ap_records[i].ssid);
+        }
+
+        printf("starting host selection UI.\n");
+
+
+        // Select SSID
+        host_ssid = ui_choose_host(hosts, ap_count);
+        printf("SSID selected=%s\n", host_ssid);
+
+        // Configure wifi
+        strcpy((char*)wifi_config.sta.ssid, host_ssid);
+        strcpy((char*)wifi_config.sta.password, EXAMPLE_ESP_WIFI_PASS);
+
+        // Free resources
+        for(uint16_t i = 0; i < ap_count; ++i)
+        {
+            free(hosts[i]);            
+        }
+
+        free(hosts);
+        free(ap_records);
+    }
+
+
+    ESP_ERROR_CHECK(esp_wifi_stop());
+            
+    //ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config) );
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT,
         false, true, portMAX_DELAY);

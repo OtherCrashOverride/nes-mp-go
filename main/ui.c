@@ -622,3 +622,181 @@ NET_ROLE ui_choose_role()
     free(fb);
     return current_role;
 }
+
+
+#define NET_HOSTS_MAX (10)
+
+static void ui_draw_hosts(char **files, int fileCount, int currentItem)
+{
+    static const size_t MAX_DISPLAY_LENGTH = 62; //38;
+
+    int page = currentItem / ITEM_COUNT;
+    page *= ITEM_COUNT;
+
+    // Reset all text boxes
+    for (int i = 0; i < ITEM_COUNT; ++i)
+    {
+        uint16_t id = TXB_ID_0 + i;
+        //UG_TextboxSetForeColor(&window1, id, C_BLACK);
+        UG_TextboxSetText(&window1, id, "");
+    }
+
+    if (fileCount < 1)
+    {
+        const char *text = "(empty)";
+
+        uint16_t id = TXB_ID_0 + (ITEM_COUNT / 2);
+        UG_TextboxSetText(&window1, id, (char *)text);
+
+        UpdateDisplay();
+    }
+    else
+    {
+        char *displayStrings[ITEM_COUNT];
+        for (int i = 0; i < ITEM_COUNT; ++i)
+        {
+            displayStrings[i] = NULL;
+        }
+
+        for (int line = 0; line < ITEM_COUNT; ++line)
+        {
+            if (page + line >= fileCount)
+                break;
+
+            uint16_t id = TXB_ID_0 + line;
+
+            if ((page) + line == currentItem)
+            {
+                UG_TextboxSetForeColor(&window1, id, C_BLACK);
+                UG_TextboxSetBackColor(&window1, id, C_YELLOW);
+            }
+            else
+            {
+                UG_TextboxSetForeColor(&window1, id, C_BLACK);
+                UG_TextboxSetBackColor(&window1, id, C_WHITE);
+            }
+
+            char *fileName = files[page + line];
+            if (!fileName)
+                abort();
+
+            size_t fileNameLength = strlen(fileName);
+            size_t displayLength = (fileNameLength <= MAX_DISPLAY_LENGTH) ? fileNameLength : MAX_DISPLAY_LENGTH;
+
+            displayStrings[line] = (char *)heap_caps_malloc(displayLength + 1, MALLOC_CAP_SPIRAM);
+            if (!displayStrings[line])
+                abort();
+
+            strncpy(displayStrings[line], fileName, displayLength);
+            displayStrings[line][displayLength] = 0; // NULL terminate
+
+            UG_TextboxSetText(&window1, id, displayStrings[line]);
+        }
+
+        UpdateDisplay();
+
+        for (int i = 0; i < ITEM_COUNT; ++i)
+        {
+            free(displayStrings[i]);
+        }
+    }
+}
+
+const char* ui_choose_host(const char** hosts, int host_count)
+{
+    printf("ui_choose_host: host_count=%d\n", host_count);
+
+    if (!hosts || host_count < 1)
+    {
+        return NULL;
+    }
+
+
+    fb = (uint16_t *)heap_caps_malloc(320 * 240 * 2, MALLOC_CAP_SPIRAM);
+    if (!fb) abort();
+
+
+    UG_Init(&gui, pset, 320, 240);
+
+    UG_WindowCreate(&window1, objbuffwnd1, MAX_OBJECTS, window1callback);
+
+    UG_WindowSetTitleText(&window1, "CHOOSE A HOST");
+    UG_WindowSetTitleTextFont(&window1, &FONT_10X16);
+    UG_WindowSetTitleTextAlignment(&window1, ALIGN_CENTER);
+
+    UG_S16 innerWidth = UG_WindowGetInnerWidth(&window1);
+    UG_S16 innerHeight = UG_WindowGetInnerHeight(&window1);
+    UG_S16 titleHeight = UG_WindowGetTitleHeight(&window1);
+    UG_S16 textHeight = (innerHeight) / NET_HOSTS_MAX;
+
+    for (int i = 0; i < NET_HOSTS_MAX; ++i)
+    {
+        uint16_t id = TXB_ID_0 + i;
+        UG_S16 top = i * textHeight;
+        UG_TextboxCreate(&window1, &textbox[i], id, 0, top, innerWidth, top + textHeight - 1);
+        UG_TextboxSetFont(&window1, id, &FONT_12X16);
+        UG_TextboxSetForeColor(&window1, id, C_BLACK);
+        UG_TextboxSetAlignment(&window1, id, ALIGN_CENTER);
+        //UG_TextboxSetText(&window1, id, "test");
+    }
+
+    UG_WindowShow(&window1);
+    
+
+    int current_item = 0;
+
+    ui_draw_hosts(hosts, host_count, current_item);
+
+    odroid_gamepad_state previousState;
+    odroid_input_gamepad_read(&previousState);
+
+    while(true)
+    {
+        odroid_gamepad_state state;
+        odroid_input_gamepad_read(&state);
+
+        if (!previousState.values[ODROID_INPUT_DOWN] && state.values[ODROID_INPUT_DOWN])
+        {
+            if (host_count > 0)
+            {
+                if (current_item + 1 < host_count)
+                {
+                    ++current_item;
+                    ui_draw_hosts(hosts, host_count, current_item);
+                }
+                else
+                {
+                    current_item = 0;
+                    ui_draw_hosts(hosts, host_count, current_item);
+                }
+            }
+        }
+        else if (!previousState.values[ODROID_INPUT_UP] && state.values[ODROID_INPUT_UP])
+        {
+            if (host_count > 0)
+            {
+                if (current_item > 0)
+                {
+                    --current_item;
+                    ui_draw_hosts(hosts, host_count, current_item);
+                }
+                else
+                {
+                    current_item = host_count - 1;
+                    ui_draw_hosts(hosts, host_count, current_item);
+                }
+            }
+        }
+        else if (!previousState.values[ODROID_INPUT_A] && state.values[ODROID_INPUT_A])
+        {
+            break;
+        }
+
+        previousState = state;
+        vTaskDelay(10 / portTICK_PERIOD_MS);
+    }
+
+
+    free(fb);
+    return hosts[current_item];
+}
