@@ -14,6 +14,8 @@
 #include <lwip/netdb.h>
 #include "mdns.h"
 
+#include <string.h>
+
 
 extern char* osd_getromdata();
 extern size_t osd_getromdata_length();
