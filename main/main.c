@@ -385,14 +385,20 @@ int app_main(void)
 
         // Start networking
         network_host_init();
+        
+        ui_message("Waiting for Player 2 ...", network_hostname_get());
         network_host_wait_for_connection();
-        uint32_t count = network_host_send_rom();
 
+        uint32_t count = network_host_send_rom();
     }
     else if (role == NET_ROLE_CLIENT)
     {
+        ui_message("Scanning for Hosts ...", "");
         network_client_init();
+
         network_client_connect_to_host();
+
+        ui_message("Syncronizing with Host ...", "");
 
         romPath = "(none)";
         network_client_load_rom();

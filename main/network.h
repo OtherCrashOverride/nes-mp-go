@@ -27,3 +27,4 @@ void network_close();
 
 
 bool network_client_sync_with_host();
+const char* network_hostname_get();

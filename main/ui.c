@@ -800,3 +800,38 @@ const char* ui_choose_host(const char** hosts, int host_count)
     free(fb);
     return hosts[current_item];
 }
+
+void ui_message(const char* message, const char* title)
+{
+    fb = (uint16_t *)heap_caps_malloc(320 * 240 * 2, MALLOC_CAP_SPIRAM);
+    if (!fb) abort();
+
+
+    UG_Init(&gui, pset, 320, 240);
+
+    UG_WindowCreate(&window1, objbuffwnd1, MAX_OBJECTS, window1callback);
+
+    UG_WindowSetTitleText(&window1, title);
+    UG_WindowSetTitleTextFont(&window1, &FONT_10X16);
+    UG_WindowSetTitleTextAlignment(&window1, ALIGN_CENTER);
+
+    UG_S16 innerWidth = UG_WindowGetInnerWidth(&window1);
+    UG_S16 innerHeight = UG_WindowGetInnerHeight(&window1);
+    UG_S16 titleHeight = UG_WindowGetTitleHeight(&window1);
+    UG_S16 textHeight = 20;
+ 
+
+    uint16_t id = TXB_ID_0;
+    UG_S16 top = (innerHeight / 2) - (textHeight / 2);
+    UG_TextboxCreate(&window1, &textbox[0], id, 0, top, innerWidth, top + textHeight - 1);
+    UG_TextboxSetFont(&window1, id, &FONT_12X16);
+    UG_TextboxSetForeColor(&window1, id, C_BLACK);
+    UG_TextboxSetAlignment(&window1, id, ALIGN_CENTER);
+    UG_TextboxSetText(&window1, id, message);
+
+
+    UG_WindowShow(&window1);
+    UpdateDisplay();
+
+    free(fb);
+}

@@ -29,7 +29,7 @@ static int host_state_sock = -1;
 #define NETWORK_TRANSMIT_MAX (128)
 
 
-#define EXAMPLE_ESP_WIFI_SSID      "odroid-go-"
+#define EXAMPLE_ESP_WIFI_SSID      "ODROID-GO-"
 #define EXAMPLE_ESP_WIFI_PASS      "password"
 #define EXAMPLE_MAX_STA_CONN       1
 
@@ -523,4 +523,9 @@ void network_close()
 bool network_client_sync_with_host()
 {
     return true;
+}
+
+const char* network_hostname_get()
+{
+    return device_name;
 }
