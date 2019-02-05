@@ -363,28 +363,36 @@ void network_client_init()
         const char** hosts = malloc(sizeof(char*) * ap_count);
         memset(hosts, 0, sizeof(char*) * ap_count);
 
+        uint16_t host_count = 0;
         for(uint16_t i = 0; i < ap_count; ++i)
         {            
             size_t len = strlen((char*)ap_records[i].ssid);
             printf("AP: ssid='%s' (%d), rssi=%d\n", ap_records[i].ssid, len, ap_records[i].rssi);
 
-            hosts[i] = malloc(sizeof(char) * len + 1);
-            if (!hosts[i]) abort();
+            if (strncmp(EXAMPLE_ESP_WIFI_SSID, (char*)ap_records[i].ssid, strlen(EXAMPLE_ESP_WIFI_SSID)) == 0)
+            {
+                hosts[host_count] = malloc(sizeof(char) * len + 1);
+                if (!hosts[host_count]) abort();
 
-            //memset(hosts[i], 0, len + 1);
-            strcpy(hosts[i], (char*)ap_records[i].ssid);
+                //memset(hosts[i], 0, len + 1);
+                strcpy(hosts[host_count], (char*)ap_records[i].ssid);
+                ++host_count;
+            }
         }
 
-        printf("starting host selection UI.\n");
+        if (host_count > 0)
+        {
+            printf("starting host selection UI.\n");
 
 
-        // Select SSID
-        host_ssid = ui_choose_host(hosts, ap_count);
-        printf("SSID selected=%s\n", host_ssid);
+            // Select SSID
+            host_ssid = ui_choose_host(hosts, host_count);
+            printf("SSID selected=%s\n", host_ssid);
 
-        // Configure wifi
-        strcpy((char*)wifi_config.sta.ssid, host_ssid);
-        strcpy((char*)wifi_config.sta.password, EXAMPLE_ESP_WIFI_PASS);
+            // Configure wifi
+            strcpy((char*)wifi_config.sta.ssid, host_ssid);
+            strcpy((char*)wifi_config.sta.password, EXAMPLE_ESP_WIFI_PASS);
+        }
 
         // Free resources
         for(uint16_t i = 0; i < ap_count; ++i)
